@@ -1,5 +1,6 @@
 package com.aistra.hail.utils
 
+import android.content.Intent
 import android.os.Build
 import androidx.annotation.RequiresApi
 
@@ -29,6 +30,18 @@ object HShell {
 
     fun setAppHidden(packageName: String, hidden: Boolean): Boolean =
         execSU("pm ${if (hidden) "hide" else "unhide"} $userArg $packageName").first == 0
+
+    fun launchApp(intent: Intent): Pair<Int, String?> {
+        val component = intent.component ?: return 1 to "Launch intent has no component"
+        val command = buildString {
+            append("am start ").append(userArg)
+            intent.action?.let { append(" -a ").append(it) }
+            intent.categories?.forEach { append(" -c ").append(it) }
+            if (intent.flags != 0) append(" -f ").append(intent.flags)
+            append(" -n ").append(component.flattenToShortString())
+        }
+        return execSU(command)
+    }
 
     fun setAppSuspended(packageName: String, suspended: Boolean): Boolean =
         execSU("pm ${if (suspended) "suspend" else "unsuspend"} $userArg $packageName").first == 0

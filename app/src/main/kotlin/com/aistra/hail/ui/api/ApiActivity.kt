@@ -195,8 +195,16 @@ class ApiActivity : ComponentActivity() {
             HIsland.ensureLaunchIntentExists(packageName)
         }
         packageManager.getLaunchIntentForPackage(pkg)?.let {
-            HShortcuts.addDynamicShortcut(pkg)
-            startActivity(it)
+            val result = if (HailData.workingMode == HailData.MODE_SU_HIDE) HShell.launchApp(it) else null
+            when {
+                result == null -> {
+                    HShortcuts.addDynamicShortcut(pkg)
+                    startActivity(it)
+                }
+
+                result.first == 0 -> HShortcuts.addDynamicShortcut(pkg)
+                else -> throw IllegalStateException(result.second ?: getString(R.string.permission_denied))
+            }
         } ?: throw ActivityNotFoundException(getString(R.string.activity_not_found))
     }
 

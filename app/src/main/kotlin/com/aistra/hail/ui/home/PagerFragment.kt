@@ -417,8 +417,16 @@ class PagerFragment : MainFragment(), PagerAdapter.OnItemClickListener, PagerAda
             HIsland.ensureLaunchIntentExists(packageName)
         }
         app.packageManager.getLaunchIntentForPackage(packageName)?.let {
-            HShortcuts.addDynamicShortcut(packageName)
-            startActivity(it)
+            val result = if (HailData.workingMode == HailData.MODE_SU_HIDE) HShell.launchApp(it) else null
+            when {
+                result == null -> {
+                    HShortcuts.addDynamicShortcut(packageName)
+                    startActivity(it)
+                }
+
+                result.first == 0 -> HShortcuts.addDynamicShortcut(packageName)
+                else -> HUI.showToast(result.second ?: getString(R.string.permission_denied), true)
+            }
         } ?: HUI.showToast(R.string.activity_not_found)
     }
 
