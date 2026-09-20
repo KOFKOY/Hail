@@ -1,15 +1,20 @@
 package com.aistra.hail.xposed
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.LauncherApps
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.os.UserHandle
 import android.service.quicksettings.TileService
 import androidx.annotation.RequiresApi
 import com.aistra.hail.BuildConfig
 import com.aistra.hail.app.HailApi
+import com.aistra.hail.utils.HLog
 import com.aistra.hail.utils.HTarget
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
@@ -26,6 +31,15 @@ class LaunchAppHook : XposedModule() {
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun hookLauncherApp() {
+        hook(
+            LauncherApps::class.java.getMethod(
+                "startMainActivity",
+                ComponentName::class.java,
+                UserHandle::class.java,
+                Rect::class.java,
+                Bundle::class.java
+            )
+        ).intercept { unsuspendBeforeLauncherStart(it) }
         hook(
             Activity::class.java.getMethod(
                 "startActivityForResult", Intent::class.java, Int::class.java, Bundle::class.java
@@ -64,11 +78,31 @@ class LaunchAppHook : XposedModule() {
         return param.proceed()
     }
 
+    private fun unsuspendBeforeLauncherStart(param: XposedInterface.Chain): Any {
+        (param.args.firstOrNull() as? ComponentName)?.packageName?.let { packageName ->
+            runCatching {
+                val launcherApps = param.thisObject as LauncherApps
+                val contextField = LauncherApps::class.java.getDeclaredField("mContext").apply {
+                    isAccessible = true
+                }
+                val context = contextField.get(launcherApps) as Context
+                if (packageName != context.packageName && packageName != BuildConfig.APPLICATION_ID) {
+                    unsuspendApp(context, packageName)
+                }
+            }.onFailure(HLog::e)
+        }
+        return param.proceed()
+    }
+
     private fun unsuspendApp(context: Context, packageName: String) {
         val packageManager = context.packageManager
         val method = packageManager.javaClass.getMethod("isPackageSuspended", String::class.java)
         if (method.invoke(packageManager, packageName) as Boolean) {
-            context.startActivity(HailApi.getIntentForPackage(HailApi.ACTION_UNFREEZE, packageName))
+            context.startActivity(
+                HailApi.getIntentForPackage(HailApi.ACTION_UNFREEZE, packageName)
+                    .setPackage(BuildConfig.APPLICATION_ID)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
 
             /**
              * It took about 500 milliseconds from [Context.startActivity]
@@ -77,7 +111,7 @@ class LaunchAppHook : XposedModule() {
              */
             Thread.sleep(300)
             repeat(6) {
-                if (!(method.invoke(packageManager, packageName) as Boolean)) return@repeat
+                if (!(method.invoke(packageManager, packageName) as Boolean)) return
                 Thread.sleep(75)
             }
         }
